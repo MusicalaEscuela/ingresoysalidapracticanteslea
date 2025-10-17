@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tester Lector QR</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <!-- Librería de escaneo (html5-qrcode) -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body>
+  <main class="container">
+    <h1>Tester Lector QR</h1>
+    <p>Prueba tu cámara y lectura de códigos QR antes de conectar con la hoja.</p>
+
+    <div class="controls">
+      <label for="cameraSelect">Cámara:</label>
+      <select id="cameraSelect"></select>
+
+      <label for="fpsInput">FPS:</label>
+      <input id="fpsInput" type="number" min="1" max="60" value="10" />
+    </div>
+
+    <div id="reader" class="reader"></div>
+
+    <section class="panel">
+      <h2>Resultado</h2>
+      <div id="result" class="result">Aún sin leer…</div>
+      <button id="btnStart">Iniciar</button>
+      <button id="btnStop" disabled>Detener</button>
+    </section>
+
+    <footer class="footnote">
+      Tip: prueba con un QR que contenga texto o una URL (ej: <code>action=in&code=ABC123</code>).
+    </footer>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
