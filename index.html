@@ -10,14 +10,16 @@
 </head>
 <body>
   <main class="container">
+    <!-- Header / Branding -->
     <header class="topbar">
       <img src="./logo.png" alt="Musicala" class="logo" />
       <div class="brand">
-        <h1>Prácticas LEA · Registro QR</h1>
+        <h1>Registro QR</h1>
         <p class="subtitle">Bienvenid@s a Musicala — escanea para registrar tu llegada o salida.</p>
       </div>
     </header>
 
+    <!-- Tarjeta principal: controles + lector + resultado -->
     <section class="card">
       <div class="grid controls">
         <div class="field">
@@ -36,8 +38,10 @@
         </div>
       </div>
 
+      <!-- Lector -->
       <div id="reader" class="reader"></div>
 
+      <!-- Resultado -->
       <div class="panel">
         <h2>Último resultado</h2>
         <div id="result" class="result">Aún sin leer…</div>
@@ -45,11 +49,18 @@
       </div>
     </section>
 
+    <!-- Resumen local de hoy (NECESARIO para app.js) -->
+    <section class="card">
+      <h2>Resumen local de hoy</h2>
+      <div id="summary"></div>
+    </section>
+
     <footer class="footnote">
       Tip: el QR puede contener cualquier texto. El sistema toma la <strong>hora del escaneo</strong> automáticamente.
     </footer>
   </main>
 
+  <!-- Tu lógica -->
   <script type="module" src="./app.js"></script>
 </body>
 </html>
