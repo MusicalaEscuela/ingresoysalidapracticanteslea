@@ -3,35 +3,50 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tester Lector QR</title>
+  <title>Practicantes LEA · Musicala</title>
   <link rel="stylesheet" href="./styles.css" />
   <!-- Librería de escaneo (html5-qrcode) -->
   <script src="https://unpkg.com/html5-qrcode"></script>
 </head>
 <body>
   <main class="container">
-    <h1>Tester Lector QR</h1>
-    <p>Prueba tu cámara y lectura de códigos QR antes de conectar con la hoja.</p>
+    <header class="topbar">
+      <img src="./logo.png" alt="Musicala" class="logo" />
+      <div class="brand">
+        <h1>Prácticas LEA · Registro QR</h1>
+        <p class="subtitle">Bienvenid@s a Musicala — escanea para registrar tu llegada o salida.</p>
+      </div>
+    </header>
 
-    <div class="controls">
-      <label for="cameraSelect">Cámara:</label>
-      <select id="cameraSelect"></select>
+    <section class="card">
+      <div class="grid controls">
+        <div class="field">
+          <label for="practicanteSelect">Practicante</label>
+          <select id="practicanteSelect"></select>
+        </div>
 
-      <label for="fpsInput">FPS:</label>
-      <input id="fpsInput" type="number" min="1" max="60" value="10" />
-    </div>
+        <div class="field">
+          <label for="cameraSelect">Cámara</label>
+          <select id="cameraSelect"></select>
+        </div>
 
-    <div id="reader" class="reader"></div>
+        <div class="field actions">
+          <button id="btnStart" class="btn primary">Iniciar cámara</button>
+          <button id="btnStop" class="btn ghost" disabled>Detener</button>
+        </div>
+      </div>
 
-    <section class="panel">
-      <h2>Resultado</h2>
-      <div id="result" class="result">Aún sin leer…</div>
-      <button id="btnStart">Iniciar</button>
-      <button id="btnStop" disabled>Detener</button>
+      <div id="reader" class="reader"></div>
+
+      <div class="panel">
+        <h2>Último resultado</h2>
+        <div id="result" class="result">Aún sin leer…</div>
+        <p class="note">El registro requiere internet activo (sin modo offline).</p>
+      </div>
     </section>
 
     <footer class="footnote">
-      Tip: prueba con un QR que contenga texto o una URL (ej: <code>action=in&code=ABC123</code>).
+      Tip: el QR puede contener cualquier texto. El sistema toma la <strong>hora del escaneo</strong> automáticamente.
     </footer>
   </main>
 
