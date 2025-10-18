@@ -90,3 +90,26 @@ body{
   padding:8px 0; border-bottom:1px solid rgba(255,255,255,.06);
 }
 #summary .row.header{ font-weight:700; color:var(--muted); border-bottom:1px solid rgba(255,255,255,.15); }
+
+/* --- Mobile friendly --- */
+@media (max-width: 680px) {
+  .container { padding: 12px; }
+  .topbar { align-items: flex-start; gap: 10px; }
+  .logo { width: 88px; }
+  .brand h1 { font-size: 1.25rem; line-height: 1.2; }
+  .subtitle { font-size: .95rem; }
+
+  .grid.controls {
+    grid-template-columns: 1fr;   /* una sola columna */
+    gap: 10px;
+  }
+
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .btn { width: 100%; padding: 12px 14px; font-size: 1rem; }
+
+  /* Oculta el selector de cámara en mobile */
+  #cameraSelect, label[for="cameraSelect"] { display: none !important; }
+
+  /* Lector más alto en pantallas chicas */
+  .reader { aspect-ratio: auto; min-height: 280px; }
+}
