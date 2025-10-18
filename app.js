@@ -11,6 +11,7 @@ const LS_KEY = "lea.qr.v1"; // { name, cameraId, history: {YYYY-MM-DD:{ingreso?,
 
 let html5QrCode = null;
 let currentCameraId = null;
+let SUBMIT_LOCK = false; // <- evita doble escaneo mientras registra
 
 // ====== Helpers ======
 const $ = (sel, ctx=document) => ctx.querySelector(sel);
@@ -38,7 +39,6 @@ function fmtTime(d = new Date()){
   const mm = String(d.getMinutes()).padStart(2,"0");
   return `${hh}:${mm}`;
 }
-
 function insecureContextMsg() {
   return !window.isSecureContext
     ? "Este sitio no está en HTTPS. En móviles, la cámara se bloquea sin HTTPS."
@@ -57,7 +57,6 @@ function populatePracticantes(){
 
 function pickBestCameraId(devices) {
   if (!devices || !devices.length) return null;
-  // Prioriza la cámara trasera por etiqueta
   const rear = devices.find(d => /back|trasera|rear|environment/i.test(d.label || ""));
   return (rear && rear.id) || devices[0].id;
 }
@@ -82,7 +81,6 @@ async function loadCameras() {
     });
     if (currentCameraId) $cameraSelect.value = currentCameraId;
 
-    // recuerda selección previa si existe
     const st = loadState();
     if (st.cameraId && devices.some(d => d.id === st.cameraId)) {
       currentCameraId = st.cameraId;
@@ -116,17 +114,15 @@ async function start() {
     if (html5QrCode) await html5QrCode.stop().catch(()=>{});
     html5QrCode = new Html5Qrcode("reader");
 
-    // 1) Intento con deviceId seleccionado
     try {
       await html5QrCode.start(
         { deviceId: { exact: currentCameraId } },
         { fps: 10, qrbox: (vw, vh) => ({ width: Math.min(vw, vh) * 0.7, height: Math.min(vw, vh) * 0.7 }) },
         onScanSuccess,
-        () => {} // onScanFailure silencioso
+        () => {}
       );
     } catch (err1) {
       console.warn("Falló con deviceId, probando facingMode environment…", err1);
-      // 2) Fallback con facingMode (mejora iOS/Android)
       await html5QrCode.start(
         { facingMode: "environment" },
         { fps: 10, qrbox: (vw, vh) => ({ width: Math.min(vw, vh) * 0.7, height: Math.min(vw, vh) * 0.7 }) },
@@ -137,8 +133,6 @@ async function start() {
 
     $btnStart.disabled = true;
     $btnStop.disabled = false;
-
-    // Guardar cámara elegida
     const st = loadState(); st.cameraId = currentCameraId; saveState(st);
 
   } catch (err) {
@@ -163,17 +157,24 @@ $btnStart.addEventListener("click", start);
 $btnStop.addEventListener("click", stop);
 
 async function onScanSuccess(decodedText) {
-  if (navigator.vibrate) navigator.vibrate(40);
+  // Evita dobles lecturas mientras enviamos
+  if (SUBMIT_LOCK) return;
+  SUBMIT_LOCK = true;
 
-  const name = $practicante.value || PRACTICANTES[0];
-  const now = new Date();
-  const dateISO = todayKey(now);
-  const timeHHMM = fmtTime(now);
+  try {
+    if (navigator.vibrate) navigator.vibrate(20);
+    // Pausar la cámara mientras registramos (evita múltiples onScanSuccess)
+    if (html5QrCode && html5QrCode.pause) {
+      html5QrCode.pause(true); // congela frame
+    }
 
-  // Optimista en UI
-  $result.textContent = `Leyó: “${decodedText}” — ${dateISO} ${timeHHMM} — Enviando…`;
+    const name = $practicante.value || PRACTICANTES[0];
+    const now = new Date();
+    const dateISO = todayKey(now);
+    const timeHHMM = fmtTime(now);
 
-  try{
+    $result.textContent = `Leyó: “${decodedText}” — ${dateISO} ${timeHHMM} — Enviando…`;
+
     // Enviar como text/plain para evitar preflight CORS
     const res = await fetch(GAS_URL, {
       method: "POST",
@@ -181,25 +182,31 @@ async function onScanSuccess(decodedText) {
       body: JSON.stringify({
         mode: "registro",
         payload: {
-          date: dateISO,             // YYYY-MM-DD
-          name,                      // practicante
-          stamp: now.toISOString(),  // sello exacto
-          raw: decodedText           // contenido del QR (ADM-LLEGADA / ADM-SALIDA)
+          date: dateISO,
+          name,
+          stamp: now.toISOString(),
+          raw: decodedText // ADM-LLEGADA / ADM-SALIDA
         }
       })
     });
 
+    const rawText = await res.text().catch(()=>"(sin cuerpo)");
     if (!res.ok) {
-      const txt = await res.text().catch(()=>"(sin cuerpo)");
-      throw new Error(`HTTP ${res.status} – ${txt}`);
+      $result.textContent = `❌ HTTP ${res.status} – ${rawText}`;
+      return;
     }
 
-    const text = await res.text();
     let data;
-    try { data = JSON.parse(text); }
-    catch { throw new Error("Respuesta no JSON del servidor: " + text); }
+    try { data = JSON.parse(rawText); }
+    catch {
+      $result.textContent = `❌ Respuesta no JSON del servidor: ${rawText}`;
+      return;
+    }
 
-    if(!data.ok) throw new Error(data.error || "Error desconocido");
+    if (!data.ok) {
+      $result.textContent = `❌ GAS dijo: ${data.error || "Error desconocido"}`;
+      return;
+    }
 
     const tipo = data.type === "salida" ? "Salida" : "Ingreso";
     $result.textContent = `✔️ ${name} — ${tipo} registrado: ${dateISO} ${timeHHMM}`;
@@ -213,9 +220,20 @@ async function onScanSuccess(decodedText) {
     saveState(st);
     renderSummary();
 
-  }catch(err){
+  } catch (err) {
     console.error(err);
-    $result.textContent = `❌ Error al registrar. Revisa internet o la URL del GAS.`;
+    $result.textContent = `❌ Fetch falló (¿CORS o red?): ${String(err)}`;
+  } finally {
+    // Reanudar cámara y liberar lock después de un pequeño respiro
+    setTimeout(async () => {
+      try {
+        if (html5QrCode && html5QrCode.isScanning) {
+          // algunos builds requieren resume(); en otros con pause(true) basta con resume()
+          if (html5QrCode.resume) html5QrCode.resume();
+        }
+      } catch(e){ console.warn("No se pudo reanudar:", e); }
+      SUBMIT_LOCK = false;
+    }, 600); // 0.6s para evitar rebotes por el mismo QR
   }
 }
 
