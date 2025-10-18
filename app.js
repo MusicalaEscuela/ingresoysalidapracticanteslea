@@ -1,5 +1,5 @@
 // ====== Config ======
-const GAS_URL = "https://script.google.com/macros/s/AKfycbwheAS_RBS-o_axbH3fQG4bf4zghRb0xUVZa76pvycWgne3T48BS1e-iGKcDFpO2nsQxA/exec"; // /exec de tu Web App
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwheAS_RBS-o_axbH3fQG4bf4zghRb0xUVZa76pvycWgne3T48BS1e-iGKcDFpO2nsQxA/exec"; // <- reemplaza con tu /exec del Web App
 const PRACTICANTES = [
   "Laura Sánchez",
   "Juliana Rodríguez",
@@ -7,22 +7,24 @@ const PRACTICANTES = [
   "Dannia Carrero",
   "Evelyn Montes"
 ];
-const LS_KEY = "lea.qr.v1"; // { name, cameraId }
+const LS_KEY = "lea.qr.v1"; // { name, cameraId, history: {YYYY-MM-DD:{ingreso?, salida?}} }
 
-// ====== Estado global ======
 let html5QrCode = null;
-let currentCameraId = null;           // si encontramos una trasera concreta, la usamos
-let lastScan = { text: null, time: 0 }; // antirrebote cliente (5s)
+let currentCameraId = null;
 
 // ====== Helpers ======
 const $ = (sel, ctx=document) => ctx.querySelector(sel);
-const $cameraSelect   = $("#cameraSelect");     // seguirá en el DOM pero no lo necesitamos
-const $practicante    = $("#practicanteSelect");
-const $result         = $("#result");
-const $btnStart       = $("#btnStart");
-const $btnStop        = $("#btnStop");
+const $reader = $("#reader");
+const $cameraSelect = $("#cameraSelect");
+const $practicante = $("#practicanteSelect");
+const $result = $("#result");
+const $btnStart = $("#btnStart");
+const $btnStop = $("#btnStop");
+const $summary = $("#summary");
 
-const loadState = () => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch { return {}; } };
+const loadState = () => {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch { return {}; }
+};
 const saveState = (data) => localStorage.setItem(LS_KEY, JSON.stringify(data));
 
 function todayKey(d = new Date()){
@@ -37,7 +39,13 @@ function fmtTime(d = new Date()){
   return `${hh}:${mm}`;
 }
 
-// ====== UI ======
+function insecureContextMsg() {
+  return !window.isSecureContext
+    ? "Este sitio no está en HTTPS. En móviles, la cámara se bloquea sin HTTPS."
+    : "";
+}
+
+// ====== UI Setup ======
 function populatePracticantes(){
   $practicante.innerHTML = "";
   PRACTICANTES.forEach(n => {
@@ -47,110 +55,114 @@ function populatePracticantes(){
   });
 }
 
-// Opcional: ocultar el selector de cámara (no lo usaremos)
-if ($cameraSelect) $cameraSelect.style.display = "none";
+function pickBestCameraId(devices) {
+  if (!devices || !devices.length) return null;
+  // Prioriza la cámara trasera por etiqueta
+  const rear = devices.find(d => /back|trasera|rear|environment/i.test(d.label || ""));
+  return (rear && rear.id) || devices[0].id;
+}
+
+async function loadCameras() {
+  try {
+    const devices = await Html5Qrcode.getCameras();
+    $cameraSelect.innerHTML = "";
+    if (!devices || !devices.length) {
+      const msg = insecureContextMsg() || "No se detectaron cámaras. Revisa permisos del navegador.";
+      $result.textContent = `⚠️ ${msg}`;
+      return;
+    }
+
+    currentCameraId = pickBestCameraId(devices);
+
+    devices.forEach((d, i) => {
+      const opt = document.createElement("option");
+      opt.value = d.id;
+      opt.textContent = d.label || `Cámara ${i+1}`;
+      $cameraSelect.appendChild(opt);
+    });
+    if (currentCameraId) $cameraSelect.value = currentCameraId;
+
+    // recuerda selección previa si existe
+    const st = loadState();
+    if (st.cameraId && devices.some(d => d.id === st.cameraId)) {
+      currentCameraId = st.cameraId;
+      $cameraSelect.value = st.cameraId;
+    }
+  } catch (e) {
+    console.error(e);
+    const msg = insecureContextMsg() || "Error listando cámaras. Revisa permisos del navegador.";
+    $result.textContent = `⚠️ ${msg}`;
+  }
+}
+
+$cameraSelect.addEventListener("change", (e) => {
+  currentCameraId = e.target.value;
+  const st = loadState();
+  st.cameraId = currentCameraId;
+  saveState(st);
+});
 
 $practicante.addEventListener("change", () => {
   const st = loadState();
   st.name = $practicante.value;
   saveState(st);
+  renderSummary();
 });
-
-// ====== Elección automática de cámara trasera ======
-async function pickBackCameraId() {
-  try {
-    const devices = await Html5Qrcode.getCameras();
-    if (!devices || !devices.length) return null;
-
-    // Buscar por etiqueta "back" / "rear"
-    const byLabel = devices.find(d => (d.label||"").toLowerCase().includes("back") || (d.label||"").toLowerCase().includes("rear"));
-    if (byLabel) return byLabel.id;
-
-    // Algunos Android exponen trasera última en la lista; probamos heurística:
-    if (devices.length > 1) return devices[devices.length - 1].id;
-
-    // Fallback a la primera
-    return devices[0].id;
-  } catch {
-    return null;
-  }
-}
 
 // ====== Escaneo ======
 async function start() {
   try {
-    // Pedimos permiso explícito para evitar fallos silenciosos en móviles
-    await navigator.mediaDevices.getUserMedia({ video: true });
-
-    // 1) Intento preferido: facingMode 'environment' (abre trasera sin deviceId)
+    if (!currentCameraId) await loadCameras();
     if (html5QrCode) await html5QrCode.stop().catch(()=>{});
     html5QrCode = new Html5Qrcode("reader");
 
-    const commonConfig = { fps: 10, qrbox: (vw, vh) => ({ width: Math.min(vw, vh) * 0.7, height: Math.min(vw, vh) * 0.7 }) };
-
+    // 1) Intento con deviceId seleccionado
     try {
       await html5QrCode.start(
-        { facingMode: { exact: "environment" } },
-        commonConfig,
+        { deviceId: { exact: currentCameraId } },
+        { fps: 10, qrbox: (vw, vh) => ({ width: Math.min(vw, vh) * 0.7, height: Math.min(vw, vh) * 0.7 }) },
         onScanSuccess,
-        () => {}
+        () => {} // onScanFailure silencioso
       );
-    } catch (e1) {
-      // 2) Fallback: enumerar y escoger "back/rear" (o la última)
-      const backId = currentCameraId || await pickBackCameraId();
-      if (!backId) throw e1;
-
+    } catch (err1) {
+      console.warn("Falló con deviceId, probando facingMode environment…", err1);
+      // 2) Fallback con facingMode (mejora iOS/Android)
       await html5QrCode.start(
-        { deviceId: { exact: backId } },
-        commonConfig,
+        { facingMode: "environment" },
+        { fps: 10, qrbox: (vw, vh) => ({ width: Math.min(vw, vh) * 0.7, height: Math.min(vw, vh) * 0.7 }) },
         onScanSuccess,
         () => {}
       );
-      currentCameraId = backId; // memoriza
-      const st = loadState();
-      st.cameraId = backId;
-      saveState(st);
     }
 
     $btnStart.disabled = true;
-    $btnStop.disabled  = false;
-    $result.textContent = "Cámara lista (trasera). Acerca el código QR.";
+    $btnStop.disabled = false;
+
+    // Guardar cámara elegida
+    const st = loadState(); st.cameraId = currentCameraId; saveState(st);
+
   } catch (err) {
     console.error(err);
-    $result.textContent = "⚠️ Error al acceder a la cámara. Revisa permisos o usa HTTPS.";
+    const msg = insecureContextMsg() ||
+      "Error al acceder a la cámara. Revisa permisos del sitio o cierra apps que usen la cámara (WhatsApp/Instagram) y vuelve a intentar.";
+    $result.textContent = `⚠️ ${msg}`;
   }
 }
 
 async function stop() {
   if (html5QrCode) {
-    try {
-      await html5QrCode.stop();
-      await html5QrCode.clear();
-    } catch(e){ /* no-op */ }
+    await html5QrCode.stop();
+    await html5QrCode.clear();
     html5QrCode = null;
   }
   $btnStart.disabled = false;
-  $btnStop.disabled  = true;
-  $result.textContent = "Cámara detenida.";
+  $btnStop.disabled = true;
 }
 
 $btnStart.addEventListener("click", start);
 $btnStop.addEventListener("click", stop);
 
-// Detección tipo desde texto QR
-function detectTypeFromText(txt="") {
-  const t = String(txt).toUpperCase();
-  if (t.includes("SALIDA")) return "salida";
-  if (t.includes("INGRESO") || t.includes("LLEGADA")) return "ingreso";
-  return ""; // indeterminado -> el servidor decide
-}
-
 async function onScanSuccess(decodedText) {
-  // Antirrebote en cliente: ignora el mismo código por 5s
-  const nowMs = Date.now();
-  if (decodedText === lastScan.text && nowMs - lastScan.time < 5000) return;
-  lastScan = { text: decodedText, time: nowMs };
-
   if (navigator.vibrate) navigator.vibrate(40);
 
   const name = $practicante.value || PRACTICANTES[0];
@@ -158,72 +170,66 @@ async function onScanSuccess(decodedText) {
   const dateISO = todayKey(now);
   const timeHHMM = fmtTime(now);
 
-  // Detectar tipo según QR (ADM-INGRESO / ADM-SALIDA)
-  const tipoDetectado = detectTypeFromText(decodedText);
-
-  // Mensaje optimista
+  // Optimista en UI
   $result.textContent = `Leyó: “${decodedText}” — ${dateISO} ${timeHHMM} — Enviando…`;
 
   try{
+    // Enviar como text/plain para evitar preflight CORS
     const res = await fetch(GAS_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({
         mode: "registro",
         payload: {
-          date: dateISO,
-          name,
-          stamp: now.toISOString(),
-          raw: decodedText,
-          type: tipoDetectado
+          date: dateISO,             // YYYY-MM-DD
+          name,                      // practicante
+          stamp: now.toISOString(),  // sello exacto
+          raw: decodedText           // contenido del QR (ADM-LLEGADA / ADM-SALIDA)
         }
       })
     });
 
-    const rawText = await res.text();
-    if (!res.ok) throw new Error(`HTTP ${res.status} — ${rawText.slice(0, 300)}`);
-
-    let data;
-    try { data = JSON.parse(rawText); }
-    catch { throw new Error("Respuesta no-JSON del servidor: " + rawText.slice(0, 300)); }
-
-    if(!data.ok) throw new Error(data.error || "Error desconocido del servidor");
-
-    const serverType = data.type; // ingreso | salida | duplicado_ingreso | duplicado_salida | cooldown
-    let msg = "";
-    if (serverType === "ingreso") {
-      msg = `✔️ ${name} — Ingreso registrado: ${dateISO} ${timeHHMM}`;
-      await pauseScanningBriefly();
-    } else if (serverType === "salida") {
-      msg = `✔️ ${name} — Salida registrada: ${dateISO} ${timeHHMM}`;
-      await pauseScanningBriefly();
-    } else if (serverType === "duplicado_ingreso") {
-      msg = `ℹ️ ${name} — El ingreso de hoy ya estaba registrado.`;
-      await pauseScanningBriefly(1200);
-    } else if (serverType === "duplicado_salida") {
-      msg = `ℹ️ ${name} — La salida de hoy ya estaba registrada.`;
-      await pauseScanningBriefly(1200);
-    } else if (serverType === "cooldown") {
-      const left = data.secondsRemaining ?? 0;
-      msg = `⏳ Demasiado rápido. Intenta de nuevo en ~${left}s.`;
-    } else {
-      msg = `✔️ Operación realizada (${serverType}).`;
+    if (!res.ok) {
+      const txt = await res.text().catch(()=>"(sin cuerpo)");
+      throw new Error(`HTTP ${res.status} – ${txt}`);
     }
-    $result.textContent = msg;
+
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch { throw new Error("Respuesta no JSON del servidor: " + text); }
+
+    if(!data.ok) throw new Error(data.error || "Error desconocido");
+
+    const tipo = data.type === "salida" ? "Salida" : "Ingreso";
+    $result.textContent = `✔️ ${name} — ${tipo} registrado: ${dateISO} ${timeHHMM}`;
+
+    // Guardar historial local del día (solo visual)
+    const st = loadState();
+    st.history = st.history || {};
+    st.history[dateISO] = st.history[dateISO] || {};
+    if (data.type === "ingreso") st.history[dateISO].ingreso = timeHHMM;
+    if (data.type === "salida")  st.history[dateISO].salida  = timeHHMM;
+    saveState(st);
+    renderSummary();
 
   }catch(err){
     console.error(err);
-    $result.textContent = `❌ ${String(err).replace(/^Error:\s*/, "")}`;
+    $result.textContent = `❌ Error al registrar. Revisa internet o la URL del GAS.`;
   }
 }
 
-async function pauseScanningBriefly(ms=1500){
-  if (!html5QrCode) return;
-  try{
-    await html5QrCode.pause(true);
-    await new Promise(r => setTimeout(r, ms));
-    await html5QrCode.resume();
-  }catch(e){ /* no-op */ }
+// ====== Render ======
+function renderSummary(){
+  const st = loadState();
+  const k = todayKey();
+  const h = (st.history && st.history[k]) || {};
+  const nombre = $practicante.value || st.name || "-";
+  const rows = [
+    `<div class="row header"><div>Fecha</div><div>Nombre</div><div>Ingreso</div><div>Salida</div></div>`,
+    `<div class="row"><div>${k}</div><div>${nombre}</div><div>${h.ingreso || "-"}</div><div>${h.salida || "-"}</div></div>`
+  ];
+  $summary.innerHTML = rows.join("");
 }
 
 // ====== Init ======
@@ -232,10 +238,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const st = loadState();
   if (st.name) $practicante.value = st.name;
-
-  // memoriza última cámara “elegida” por fallback (si existió)
   if (st.cameraId) currentCameraId = st.cameraId;
 
-  // No listamos cámaras para UI; dejamos que start() resuelva trasera automáticamente.
-  // (Si quieres descubrir dispositivos antes, podrías llamar Html5Qrcode.getCameras() aquí.)
+  try {
+    await loadCameras();
+  } catch(e) {
+    console.error(e);
+    const msg = insecureContextMsg() || "Error listando cámaras. Revisa permisos del navegador.";
+    $result.textContent = `⚠️ ${msg}`;
+  }
+
+  renderSummary();
 });
