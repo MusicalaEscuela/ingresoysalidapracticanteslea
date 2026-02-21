@@ -1,6 +1,7 @@
 // ====== Config ======
 const GAS_URL = "https://script.google.com/macros/s/AKfycbwheAS_RBS-o_axbH3fQG4bf4zghRb0xUVZa76pvycWgne3T48BS1e-iGKcDFpO2nsQxA/exec"; // <- reemplaza con tu /exec del Web App
 const PRACTICANTES = [
+  "Isabel Gómez Gómez",
   "Miguel Ángel Ballesteros"
 ];
 const LS_KEY = "lea.qr.v1"; // { name, cameraId, history: {YYYY-MM-DD:{ingreso?, salida?}} }
@@ -264,4 +265,5 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   renderSummary();
 });
+
 
