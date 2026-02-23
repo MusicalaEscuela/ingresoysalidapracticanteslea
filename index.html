@@ -1,64 +1,193 @@
 <!doctype html>
-<html lang="es">
+<html lang="es-CO">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
   <title>Practicantes LEA · Musicala</title>
+  <meta name="description" content="Registro QR de llegada/salida para practicantes LEA en Musicala. Escanea el código y registra automáticamente la hora." />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+  <!-- (Opcional) PWA: si luego agregas manifest/icons -->
+  <!-- <link rel="manifest" href="./manifest.webmanifest" /> -->
+  <!-- <link rel="icon" href="./icons/icon-192.png" sizes="192x192" /> -->
+  <!-- <link rel="apple-touch-icon" href="./icons/icon-192.png" /> -->
+
   <link rel="stylesheet" href="./styles.css" />
-  <!-- Librería de escaneo (html5-qrcode) -->
-  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <!-- Librería de escaneo (html5-qrcode) - versión fijada (evita sorpresas del "latest") -->
+  <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <!-- Pequeña ayuda visual sin tocar app.js: status de HTTPS / Internet / Permiso cámara -->
+  <style>
+    /* Micro-estilos locales solo para la barra de estado (no ensucia tu CSS global) */
+    .statusbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+      margin: 10px 0 0;
+    }
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid rgba(20,40,120,.14);
+      background: rgba(255,255,255,.70);
+      font-size:.92rem;
+      color:#121528;
+      user-select:none;
+    }
+    .dot{
+      width:10px; height:10px; border-radius:999px;
+      background: #94a3b8; /* gris default */
+      box-shadow: 0 0 0 4px rgba(148,163,184,.20);
+      flex: 0 0 auto;
+    }
+    .pill strong{ font-weight: 850; }
+    .sr-only{
+      position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+      overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+    }
+  </style>
 </head>
+
 <body>
-  <main class="container">
+  <main class="container" role="main">
     <!-- Header / Branding -->
-    <header class="topbar">
+    <header class="topbar" role="banner">
       <img src="./logo.png" alt="Musicala" class="logo" />
       <div class="brand">
         <h1>Registro QR</h1>
         <p class="subtitle">Bienvenid@s a Musicala — escanea para registrar tu llegada o salida.</p>
+
+        <!-- Barra de estado (solo UI; app.js puede ignorarla si no la usas aún) -->
+        <div class="statusbar" aria-label="Estado del sistema">
+          <div class="pill" id="pillSecure" title="El registro con cámara suele requerir HTTPS">
+            <span class="dot" id="dotSecure" aria-hidden="true"></span>
+            <strong>HTTPS</strong>
+            <span id="txtSecure">verificando…</span>
+          </div>
+
+          <div class="pill" id="pillOnline" title="El registro requiere internet activo">
+            <span class="dot" id="dotOnline" aria-hidden="true"></span>
+            <strong>Internet</strong>
+            <span id="txtOnline">verificando…</span>
+          </div>
+
+          <div class="pill" id="pillCamera" title="Permiso y disponibilidad de cámara">
+            <span class="dot" id="dotCamera" aria-hidden="true"></span>
+            <strong>Cámara</strong>
+            <span id="txtCamera">verificando…</span>
+          </div>
+        </div>
       </div>
     </header>
 
     <!-- Tarjeta principal: controles + lector + resultado -->
-    <section class="card">
+    <section class="card" aria-labelledby="h-controls">
+      <h2 id="h-controls" class="sr-only">Controles y lector</h2>
+
       <div class="grid controls">
         <div class="field">
           <label for="practicanteSelect">Practicante</label>
-          <select id="practicanteSelect"></select>
+          <select id="practicanteSelect" autocomplete="off" aria-label="Selecciona el practicante"></select>
         </div>
 
         <div class="field">
           <label for="cameraSelect">Cámara</label>
-          <select id="cameraSelect"></select>
+          <select id="cameraSelect" autocomplete="off" aria-label="Selecciona la cámara"></select>
         </div>
 
-        <div class="field actions">
-          <button id="btnStart" class="btn primary">Iniciar cámara</button>
-          <button id="btnStop" class="btn ghost" disabled>Detener</button>
+        <div class="field actions" aria-label="Acciones de cámara">
+          <button id="btnStart" class="btn primary" type="button">Iniciar cámara</button>
+          <button id="btnStop" class="btn ghost" type="button" disabled>Detener</button>
         </div>
       </div>
 
       <!-- Lector -->
-      <div id="reader" class="reader"></div>
+      <div id="reader" class="reader" aria-label="Lector QR"></div>
 
       <!-- Resultado -->
-      <div class="panel">
-        <h2>Último resultado</h2>
-        <div id="result" class="result">Aún sin leer…</div>
-        <p class="note">El registro requiere internet activo (sin modo offline).</p>
+      <div class="panel" aria-labelledby="h-last">
+        <h2 id="h-last">Último resultado</h2>
+        <div id="result" class="result" role="status" aria-live="polite">Aún sin leer…</div>
+        <p class="note">
+          El registro requiere <strong>internet activo</strong>. Si algo falla, revisa permisos de cámara y que estés en HTTPS.
+        </p>
       </div>
     </section>
 
     <!-- Resumen local de hoy (NECESARIO para app.js) -->
-    <section class="card">
-      <h2>Resumen local de hoy</h2>
-      <div id="summary"></div>
+    <section class="card" aria-labelledby="h-summary">
+      <h2 id="h-summary">Resumen local de hoy</h2>
+      <div id="summary" aria-live="polite"></div>
     </section>
 
-    <footer class="footnote">
+    <footer class="footnote" role="contentinfo">
       Tip: el QR puede contener cualquier texto. El sistema toma la <strong>hora del escaneo</strong> automáticamente.
     </footer>
   </main>
+
+  <!-- UI status script (no toca tu lógica principal) -->
+  <script>
+    (function(){
+      const $ = (id) => document.getElementById(id);
+
+      const setPill = (dotId, txtId, ok, text) => {
+        const dot = $(dotId), txt = $(txtId);
+        if (!dot || !txt) return;
+        txt.textContent = text;
+        if (ok === true){
+          dot.style.background = '#16a34a';
+          dot.style.boxShadow = '0 0 0 4px rgba(22,163,74,.18)';
+        } else if (ok === false){
+          dot.style.background = '#dc2626';
+          dot.style.boxShadow = '0 0 0 4px rgba(220,38,38,.14)';
+        } else {
+          dot.style.background = '#94a3b8';
+          dot.style.boxShadow = '0 0 0 4px rgba(148,163,184,.20)';
+        }
+      };
+
+      // HTTPS / Secure Context
+      const secure = window.isSecureContext;
+      setPill('dotSecure', 'txtSecure', secure, secure ? 'ok' : 'no');
+
+      // Online status
+      const updateOnline = () => setPill('dotOnline', 'txtOnline', navigator.onLine, navigator.onLine ? 'online' : 'offline');
+      window.addEventListener('online', updateOnline);
+      window.addEventListener('offline', updateOnline);
+      updateOnline();
+
+      // Camera permission hint (best-effort)
+      const checkCam = async () => {
+        try{
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+            setPill('dotCamera', 'txtCamera', false, 'no soportada');
+            return;
+          }
+          // No forzamos permiso acá (eso lo hace tu app al iniciar), solo miramos si existe la API de permisos
+          if (navigator.permissions && navigator.permissions.query){
+            const p = await navigator.permissions.query({ name: 'camera' });
+            if (p.state === 'granted') setPill('dotCamera', 'txtCamera', true, 'permitida');
+            else if (p.state === 'denied') setPill('dotCamera', 'txtCamera', false, 'bloqueada');
+            else setPill('dotCamera', 'txtCamera', null, 'pendiente');
+            p.onchange = () => checkCam();
+          } else {
+            setPill('dotCamera', 'txtCamera', null, 'listo para pedir');
+          }
+        } catch(e){
+          setPill('dotCamera', 'txtCamera', null, 'verificando…');
+        }
+      };
+      checkCam();
+    })();
+  </script>
 
   <!-- Tu lógica -->
   <script type="module" src="./app.js"></script>
